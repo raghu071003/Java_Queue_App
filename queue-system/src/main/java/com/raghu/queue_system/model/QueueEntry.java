@@ -61,12 +61,12 @@ public class QueueEntry {
     }
 
     public QueueStatus getStatus() {
-    return status;
-}
+        return status;
+    }
 
-public void setStatus(QueueStatus status) {
-    this.status = status;
-}
+    public void setStatus(QueueStatus status) {
+        this.status = status;
+    }
 
     public LocalDateTime getJoinedAt() {
         return joinedAt;
