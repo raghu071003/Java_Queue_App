@@ -1,6 +1,7 @@
 package com.raghu.queue_system.controller;
 
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,5 +51,33 @@ public class QueueController {
             @PathVariable Long doctorId) {
 
         return queueService.getDoctorQueue(doctorId);
+    }
+
+    @GetMapping("/redis/{doctorId}")
+    public Set<Object> getDocQueue(
+            @PathVariable Long doctorId) {
+        return queueService.getRedisQueue(doctorId);
+    }
+
+    @GetMapping("/current/{doctorId}")
+    public Object getPositionForDoc(
+            @PathVariable Long doctorId) {
+        return queueService.getCurrentPatient(doctorId);
+    }
+
+    @PostMapping("/start")
+    public QueueEntry startConsultation(
+            @RequestParam Long doctorId) {
+
+        return queueService.startNextConsultation(doctorId);
+    }
+
+    @PostMapping("/complete/{queueEntryId}")
+    public String completeConsultation(
+            @PathVariable Long queueEntryId) {
+
+        queueService.completeConsultation(queueEntryId);
+
+        return "Consultation completed";
     }
 }
