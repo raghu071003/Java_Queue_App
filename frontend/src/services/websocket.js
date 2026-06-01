@@ -1,5 +1,6 @@
 import SockJS from "sockjs-client";
 import { Client } from "@stomp/stompjs";
+import { API_BASE_URL } from "../api/axios";
 
 export const connectQueueSocket = (
   doctorId,
@@ -7,7 +8,7 @@ export const connectQueueSocket = (
 ) => {
 
   const socket = new SockJS(
-    "http://localhost:8080/ws"
+    `${API_BASE_URL}/ws`
   );
 
   const client = new Client({
