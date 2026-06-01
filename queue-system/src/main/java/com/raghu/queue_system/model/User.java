@@ -19,15 +19,20 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private UserRole role = UserRole.PATIENT;
+
     // 🔹 Default Constructor (REQUIRED by JPA)
     public User() {
     }
 
     // 🔹 Parameterized Constructor (useful for creating objects)
-    public User(String name, String email, String password) {
+    public User(String name, String email, String password, UserRole role) {
         this.name = name;
         this.email = email;
         this.password = password;
+        this.role = role != null ? role : UserRole.PATIENT;
     }
 
     // 🔹 Getters and Setters
@@ -62,6 +67,14 @@ public class User {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
+    public void setRole(UserRole role) {
+        this.role = role;
     }
 
     // 🔹 Optional: toString() for debugging

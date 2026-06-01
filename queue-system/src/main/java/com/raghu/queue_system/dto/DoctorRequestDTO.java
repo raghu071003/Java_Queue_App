@@ -1,35 +1,23 @@
-package com.raghu.queue_system.model;
+package com.raghu.queue_system.dto;
 
-import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
-@Entity
-public class Doctor {
+public class DoctorRequestDTO {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
+    @NotBlank(message = "Doctor name is required")
     private String name;
 
+    @NotBlank(message = "Specialization is required")
     private String specialization;
 
+    @NotNull(message = "Average service time is required")
     private Integer avgServiceTime;
 
-    @Column(unique = true)
     private String email;
 
-    // getters & setters
-
-    public Long getId() {
-        return this.id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
     public String getName() {
-        return this.name;
+        return name;
     }
 
     public void setName(String name) {
@@ -37,7 +25,7 @@ public class Doctor {
     }
 
     public String getSpecialization() {
-        return this.specialization;
+        return specialization;
     }
 
     public void setSpecialization(String specialization) {
@@ -45,7 +33,7 @@ public class Doctor {
     }
 
     public Integer getAvgServiceTime() {
-        return this.avgServiceTime;
+        return avgServiceTime;
     }
 
     public void setAvgServiceTime(Integer avgServiceTime) {
@@ -53,7 +41,7 @@ public class Doctor {
     }
 
     public String getEmail() {
-        return this.email;
+        return email;
     }
 
     public void setEmail(String email) {

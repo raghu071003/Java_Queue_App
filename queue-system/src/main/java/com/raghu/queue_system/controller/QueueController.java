@@ -11,9 +11,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.raghu.queue_system.dto.ApiResponse;
+import com.raghu.queue_system.dto.QueueEntryDTO;
 import com.raghu.queue_system.dto.QueuePatientDTO;
 import com.raghu.queue_system.dto.QueueResponseDTO;
-import com.raghu.queue_system.model.QueueEntry;
 import com.raghu.queue_system.service.QueueService;
 
 @RestController
@@ -26,58 +27,57 @@ public class QueueController {
     }
 
     @PostMapping("/join")
-    public QueueEntry joinQueue(Authentication authentication,
-            @RequestParam Long doctorId) {
-
+    public ApiResponse<QueueEntryDTO> joinQueue(Authentication authentication, @RequestParam Long doctorId) {
         String email = authentication.getName();
-
-        return queueService
-                .joinQueueForAuthenticatedUser(email, doctorId);
+        QueueEntryDTO response = queueService.joinQueueForAuthenticatedUser(email, doctorId);
+        return ApiResponse.success("Joined queue successfully", response);
     }
 
     @GetMapping("/details/{id}")
-    public QueueResponseDTO getQueueDetails(@PathVariable Long id) {
-        return queueService.getQueueDetails(id);
-    }
-
-    @PostMapping("/next")
-    public String serveNextPatient(@RequestParam Long doctorId) {
-        queueService.serveNextPatient(doctorId);
-        return "Next Patient Served";
+    public ApiResponse<QueueResponseDTO> getQueueDetails(@PathVariable Long id) {
+        QueueResponseDTO response = queueService.getQueueDetails(id);
+        return ApiResponse.success("Queue details retrieved successfully", response);
     }
 
     @GetMapping("/doctor/{doctorId}")
-    public List<QueuePatientDTO> getDoctorQueue(
-            @PathVariable Long doctorId) {
-
-        return queueService.getDoctorQueue(doctorId);
+    public ApiResponse<List<QueuePatientDTO>> getDoctorQueue(@PathVariable Long doctorId) {
+        List<QueuePatientDTO> response = queueService.getDoctorQueue(doctorId);
+        return ApiResponse.success("Doctor queue retrieved successfully", response);
     }
 
     @GetMapping("/redis/{doctorId}")
-    public Set<Object> getDocQueue(
-            @PathVariable Long doctorId) {
-        return queueService.getRedisQueue(doctorId);
+    public ApiResponse<Set<Object>> getDocQueue(@PathVariable Long doctorId) {
+        Set<Object> response = queueService.getRedisQueue(doctorId);
+        return ApiResponse.success("Redis queue retrieved successfully", response);
     }
 
     @GetMapping("/current/{doctorId}")
-    public Object getPositionForDoc(
-            @PathVariable Long doctorId) {
-        return queueService.getCurrentPatient(doctorId);
+    public ApiResponse<Object> getPositionForDoc(@PathVariable Long doctorId) {
+        Object response = queueService.getCurrentPatient(doctorId);
+        return ApiResponse.success("Current patient retrieved successfully", response);
     }
 
     @PostMapping("/start")
-    public QueueEntry startConsultation(
-            @RequestParam Long doctorId) {
-
-        return queueService.startNextConsultation(doctorId);
+    public ApiResponse<QueueEntryDTO> startConsultation(@RequestParam Long doctorId) {
+        QueueEntryDTO response = queueService.startNextConsultation(doctorId);
+        return ApiResponse.success("Consultation started successfully", response);
     }
 
     @PostMapping("/complete/{queueEntryId}")
-    public String completeConsultation(
-            @PathVariable Long queueEntryId) {
-
+    public ApiResponse<String> completeConsultation(@PathVariable Long queueEntryId) {
         queueService.completeConsultation(queueEntryId);
+        return ApiResponse.success("Consultation completed", "Consultation completed");
+    }
 
-        return "Consultation completed";
+    @GetMapping("/active/{doctorId}")
+    public ApiResponse<QueueEntryDTO> getActiveConsultation(@PathVariable Long doctorId) {
+        QueueEntryDTO response = queueService.getActiveConsultation(doctorId);
+        return ApiResponse.success("Active consultation retrieved successfully", response);
+    }
+
+    @GetMapping("/my-position")
+    public ApiResponse<QueueResponseDTO> getMyPosition(Authentication authentication, @RequestParam(required = false) Long doctorId) {
+        QueueResponseDTO response = queueService.getMyQueueDetails(authentication.getName(), doctorId);
+        return ApiResponse.success("My queue details retrieved successfully", response);
     }
 }

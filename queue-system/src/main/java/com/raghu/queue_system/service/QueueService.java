@@ -2,8 +2,10 @@ package com.raghu.queue_system.service;
 
 import com.raghu.queue_system.dto.QueuePatientDTO;
 import com.raghu.queue_system.dto.QueueResponseDTO;
+import com.raghu.queue_system.dto.QueueEntryDTO;
 import com.raghu.queue_system.model.*;
 import com.raghu.queue_system.repository.*;
+import com.raghu.queue_system.exception.*;
 
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -12,10 +14,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.Set;
-
-import com.raghu.queue_system.exception.AlreadyInQueueException;
-import com.raghu.queue_system.exception.DoctorNotFoundException;
-import com.raghu.queue_system.exception.UserNotFoundException;;
 
 @Service
 public class QueueService {
@@ -40,42 +38,9 @@ public class QueueService {
                 this.messagingTemplate = messagingTemplate;
         }
 
-        public QueueEntry joinQueue(Long userId, Long doctorId) {
-
-                User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found"));
-
-                Doctor doctor = doctorRepository.findById(doctorId)
-                                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-
-                boolean alreadyWaiting = queueEntryRepository
-                                .existsByUserIdAndDoctorIdAndStatus(
-                                                userId,
-                                                doctorId,
-                                                QueueStatus.WAITING);
-
-                if (alreadyWaiting) {
-                        throw new AlreadyInQueueException("User Aldready Exists!");
-                }
-
-                List<QueueEntry> queue = queueEntryRepository.findByDoctorIdOrderByPosition(doctorId);
-
-                int nextPosition = queue.size() + 1;
-
-                QueueEntry entry = new QueueEntry();
-
-                entry.setUser(user);
-                entry.setDoctor(doctor);
-                entry.setPosition(nextPosition);
-                entry.setStatus(QueueStatus.WAITING);
-                entry.setJoinedAt(LocalDateTime.now());
-
-                return queueEntryRepository.save(entry);
-        }
-
         public QueueResponseDTO getQueueDetails(Long queueEntryId) {
                 QueueEntry entry = queueEntryRepository.findById(queueEntryId)
-                                .orElseThrow(() -> new RuntimeException("Queue entry not found!"));
+                                .orElseThrow(() -> new QueueEntryNotFoundException("Queue entry not found!"));
 
                 int peopleAhead = entry.getPosition() - 1;
                 int estimatedWait = peopleAhead * entry.getDoctor().getAvgServiceTime();
@@ -84,24 +49,7 @@ public class QueueService {
                                 estimatedWait, entry.getStatus());
         }
 
-        public void serveNextPatient(Long doctorId) {
-                List<QueueEntry> queue = queueEntryRepository.findByDoctorIdAndStatusOrderByPosition(doctorId,
-                                QueueStatus.WAITING);
-                if (queue.isEmpty()) {
-                        throw new RuntimeException("Queue is empty");
-                }
-                QueueEntry currentPatient = queue.get(0);
-                currentPatient.setStatus(QueueStatus.DONE);
-                queueEntryRepository.save(currentPatient);
-
-                for (int i = 1; i < queue.size(); i++) {
-                        QueueEntry entry = queue.get(i);
-                        entry.setPosition(entry.getPosition() - 1);
-                        queueEntryRepository.save(entry);
-                }
-        }
-
-        public QueueEntry joinQueueForAuthenticatedUser(
+        public QueueEntryDTO joinQueueForAuthenticatedUser(
                         String email,
                         Long doctorId) {
                 User user = userRepository.findByEmail(email)
@@ -142,7 +90,8 @@ public class QueueService {
                 messagingTemplate.convertAndSend(
                                 "/topic/queue/" + doctorId,
                                 getRedisQueue(doctorId));
-                return queueEntryRepository.save(entry);
+                QueueEntry saved = queueEntryRepository.save(entry);
+                return convertToDTO(saved);
         }
 
         public List<QueuePatientDTO> getDoctorQueue(Long doctorId) {
@@ -192,7 +141,28 @@ public class QueueService {
                 return result.iterator().next();
         }
 
-        public QueueEntry startNextConsultation(Long doctorId) {
+        private void shiftPositions(Long doctorId, int fromPosition) {
+                List<QueueEntry> subsequentEntries = queueEntryRepository
+                                .findByDoctorIdAndStatusOrderByPosition(doctorId, QueueStatus.WAITING);
+
+                String redisKey = "doctor_queue:" + doctorId;
+
+                for (QueueEntry entry : subsequentEntries) {
+                        if (entry.getPosition() != null && entry.getPosition() > fromPosition) {
+                                int newPosition = entry.getPosition() - 1;
+                                entry.setPosition(newPosition);
+                                queueEntryRepository.save(entry);
+
+                                // Update Redis score for the waiting user
+                                redisTemplate.opsForZSet().add(
+                                                redisKey,
+                                                entry.getUser().getEmail(),
+                                                newPosition);
+                        }
+                }
+        }
+
+        public QueueEntryDTO startNextConsultation(Long doctorId) {
 
                 List<QueueEntry> queue = queueEntryRepository
                                 .findByDoctorIdAndStatusOrderByPosition(
@@ -200,30 +170,111 @@ public class QueueService {
                                                 QueueStatus.WAITING);
 
                 if (queue.isEmpty()) {
-                        throw new RuntimeException("Queue is empty");
+                        throw new QueueEmptyException("Queue is empty");
                 }
 
                 QueueEntry currentPatient = queue.get(0);
+                Integer oldPosition = currentPatient.getPosition();
 
                 currentPatient.setStatus(QueueStatus.IN_PROGRESS);
+                currentPatient.setPosition(null);
+                QueueEntry saved = queueEntryRepository.save(currentPatient);
 
-                return queueEntryRepository.save(currentPatient);
+                // Remove from Redis waiting queue
+                removeFromRedisQueue(doctorId, currentPatient.getUser().getEmail());
+
+                // Shift remaining waiting patients
+                if (oldPosition != null) {
+                        shiftPositions(doctorId, oldPosition);
+                }
+
+                // Broadcast updated queue to WebSockets
+                messagingTemplate.convertAndSend(
+                                "/topic/queue/" + doctorId,
+                                getRedisQueue(doctorId));
+
+                return convertToDTO(saved);
         }
 
         public void completeConsultation(Long queueEntryId) {
-
                 QueueEntry current = queueEntryRepository.findById(queueEntryId)
-                                .orElseThrow(() -> new RuntimeException("Queue entry not found"));
+                                .orElseThrow(() -> new QueueEntryNotFoundException("Queue entry not found"));
+
+                QueueStatus oldStatus = current.getStatus();
+                Integer oldPosition = current.getPosition();
 
                 current.setStatus(QueueStatus.DONE);
-
+                current.setPosition(null);
                 queueEntryRepository.save(current);
-                messagingTemplate.convertAndSend(
-                                "/topic/queue/" + current.getDoctor().getId(),
-                                getRedisQueue(current.getDoctor().getId()));
 
-                removeFromRedisQueue(
-                                current.getDoctor().getId(),
-                                current.getUser().getEmail());
+                Long doctorId = current.getDoctor().getId();
+                String email = current.getUser().getEmail();
+
+                // Remove from Redis queue
+                removeFromRedisQueue(doctorId, email);
+
+                // If they were WAITING and had a valid position, shift subsequent patients
+                if (oldStatus == QueueStatus.WAITING && oldPosition != null) {
+                        shiftPositions(doctorId, oldPosition);
+                }
+
+                // Broadcast updated queue to WebSockets after removals/updates are completed
+                messagingTemplate.convertAndSend(
+                                "/topic/queue/" + doctorId,
+                                getRedisQueue(doctorId));
+        }
+
+        public QueueResponseDTO getMyQueueDetails(
+                        String email,
+                        Long doctorId) {
+
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+                QueueEntry entry;
+                if (doctorId != null) {
+                        entry = queueEntryRepository
+                                        .findActiveQueueEntry(doctorId, user.getId())
+                                        .orElseThrow(() -> new QueueEntryNotFoundException("Not in queue"));
+                } else {
+                        List<QueueEntry> activeEntries = queueEntryRepository.findActiveQueueEntries(user.getId());
+                        if (activeEntries.isEmpty()) {
+                                throw new QueueEntryNotFoundException("Not in queue");
+                        }
+                        entry = activeEntries.get(0);
+                }
+
+                Integer positionVal = entry.getPosition();
+                int position = positionVal != null ? positionVal : 0;
+                int estimatedWait = position > 0 ? (position - 1) * entry.getDoctor().getAvgServiceTime() : 0;
+
+                return new QueueResponseDTO(
+                                user.getName(),
+                                entry.getDoctor().getName(),
+                                position,
+                                estimatedWait,
+                                entry.getStatus());
+        }
+
+        public QueueEntryDTO getActiveConsultation(Long doctorId) {
+                List<QueueEntry> active = queueEntryRepository
+                                .findByDoctorIdAndStatusOrderByPosition(doctorId, QueueStatus.IN_PROGRESS);
+                if (active.isEmpty()) {
+                        return null;
+                }
+                return convertToDTO(active.get(0));
+        }
+
+        public QueueEntryDTO convertToDTO(QueueEntry entry) {
+                return new QueueEntryDTO(
+                                entry.getId(),
+                                entry.getUser().getId(),
+                                entry.getUser().getName(),
+                                entry.getUser().getEmail(),
+                                entry.getDoctor().getId(),
+                                entry.getDoctor().getName(),
+                                entry.getPosition(),
+                                entry.getStatus(),
+                                entry.getJoinedAt());
         }
 }

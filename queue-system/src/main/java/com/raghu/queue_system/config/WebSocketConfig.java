@@ -28,4 +28,4 @@ public class WebSocketConfig
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
     }
-}
+}       

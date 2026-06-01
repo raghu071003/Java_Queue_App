@@ -46,7 +46,12 @@ public class JwtFilter implements Filter {
                         .setAuthentication(authentication);
 
             } catch (Exception e) {
-                throw new RuntimeException("Invalid JWT token");
+                SecurityContextHolder.clearContext();
+                ((jakarta.servlet.http.HttpServletResponse) response).sendError(
+                        jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED,
+                        "Invalid JWT token"
+                );
+                return;
             }
         }
 
